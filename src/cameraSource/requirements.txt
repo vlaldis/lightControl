@@ -1,0 +1,4 @@
+#argparse===1.4.0
+#Jetson.GPIO===2.0.4
+#-e git+https://github.com/Heerpa/jetson-gpio
+opencv-python

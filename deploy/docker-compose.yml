@@ -1,0 +1,6 @@
+version: "3.8"
+services:
+  ubuntu:
+    image: ubuntu
+    container_name: ubuntu
+    entrypoint: "/bin/tail -f /dev/null"
