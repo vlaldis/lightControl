@@ -1,6 +1,26 @@
 version: "3.8"
+
+x-common-env: &common_env
+  SESSION: "default"
+
 services:
-  ubuntu:
-    image: ubuntu
-    container_name: ubuntu
-    entrypoint: "/bin/tail -f /dev/null"
+  camerasource:
+    image: camerasource:latest
+    container_name: camerasource
+    build:
+      context: ../src/camerasource
+    depends_on:
+      - redis
+    environment:
+      <<: *common_env
+      SOURCE: "rtsp://admin:admin@192.168.1.168:80"
+  redis:
+    image: redis:6.0.9-alpine
+    container_name: redis
+    ports:
+      - 6379:6379
+  # zmq:
+  #   image: zeromq/zeromq:v3.2.5
+  #   container_name: zmq
+  #   ports: 
+  #     - 3000:3000
