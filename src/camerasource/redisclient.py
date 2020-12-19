@@ -25,8 +25,7 @@ class RedisClient:
 
     def getLastFrameId(self):
         key = self.redis.get(self.lastFrameKey)
-        return self.get(key) if key else 0
-
+        return self.get(key)
 
     def close(self):
         pass

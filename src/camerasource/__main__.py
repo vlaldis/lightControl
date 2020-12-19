@@ -27,14 +27,16 @@ def debug(text):
         print("{}: {}".format(datetime.utcnow(), text), flush=True)
 
 if __name__ == '__main__':
-    capture = cv2.VideoCapture(args.input)
+    input = int(args.input) if args.input.isnumeric() else args.input
+
+    capture = cv2.VideoCapture(input)
     debug("Successfully connected to Camera '{}'.".format(args.input))
 
     redis = RedisClient(args.redis_server)
     debug("Successfully connected to Redis '{}'.".format(args.redis_server))
 
-    frameId = redis.getLastFrameId()
-
+    lastid = redis.getLastFrameId()
+    frameId = lastid if lastid else 0
     try:
         while capture.isOpened():
             ret, frame = capture.read()
@@ -45,6 +47,13 @@ if __name__ == '__main__':
 
             frameId = frameId + 1
             time.sleep(1/args.fps)
+            # cv2.imshow('Video', frame)
+
+            # if(cv2.waitKey(1) & 0xFF == ord('b')):
+            #     break
+    except:
+        e = sys.exc_info()[0]
+        print(e)
     finally:
         capture.release()
         redis.close()
