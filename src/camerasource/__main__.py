@@ -1,16 +1,18 @@
 import time
 from datetime import datetime
+from threading import Thread
 
 import cv2
 import argparse
 
-from redisclient import RedisClient
+from src.core.redisclient import RedisClient
 
 parser = argparse.ArgumentParser(description="Parse video input to separate frames.")
 parser.add_argument('-i', '--input', metavar='http://my.video.source.com/', type=str, default='0',
                     help="Source can be id of connected web camera or stream URL. Default '0' (internal web camera id).")
-parser.add_argument('-f', '--fps', metavar='N', type=int, default=1,
-                    help="Framerate per second. Default 1.")
+parser.add_argument('--delay', metavar='N.N', type=float, default=1.0,
+                    help="Delay between two images. No need to have all captured frames. Sample: value=2.0 will add image each 2 seconds."
+                    " Default 1.0 .")
 parser.add_argument('-r', '--redis-server', metavar='server:port', type=str, default='redis:6379',
                     help="URL to redis server. Default 'redis:6379'.")
 parser.add_argument('-s', '--session', metavar='session-name', type=str, default='default',
@@ -22,39 +24,81 @@ args = parser.parse_args()
 print("Arguments:")
 print(args, flush=True)
 
+
 def debug(text):
     if args.debug:
         print("{}: {}".format(datetime.utcnow(), text), flush=True)
 
-if __name__ == '__main__':
-    input = int(args.input) if args.input.isnumeric() else args.input
 
-    capture = cv2.VideoCapture(input)
-    debug("Successfully connected to Camera '{}'.".format(args.input))
+class VideoStream:
+    def __init__(self, stream):
+        self.stream = stream
+        self.capture = None
+        self.frame = None
+        self.canceled = False
+        self.thread = Thread(target=self.readStream, args=())
+        self.thread.daemon = True
+        self.thread.start()
+
+    def connect(self):
+        if self.canceled:
+            return
+
+        if self.capture:
+            self.capture.release()
+
+        self.capture = cv2.VideoCapture(self.stream)
+        if not self.capture.isOpened():
+            print("Can not open camera")
+            time.sleep(1)
+
+    def readStream(self):
+        while True:
+            if self.capture is None or not self.capture.isOpened():
+                debug("Stream is closed. Conecting ...")
+                self.connect()
+            else:
+                (self.status, self.frame) = self.capture.read()
+
+    def read(self):
+        return self.frame
+
+    def release(self):
+        self.canceled = True
+        self.capture.release()
+        
+
+def main():
+    input = int(args.input) if args.input.isnumeric() else args.input
+    stream = VideoStream(input)
+    debug("Successfully connected to Stream '{}'.".format(args.input))
 
     redis = RedisClient(args.redis_server)
     debug("Successfully connected to Redis '{}'.".format(args.redis_server))
 
     lastid = redis.getLastFrameId()
-    frameId = lastid if lastid else 0
+    frameId = int(lastid) if lastid else 0
     try:
-        while capture.isOpened():
-            ret, frame = capture.read()
-            debug("Got frame.")
+        while True:
+            frame = stream.read()
+            if frame is None:
+                debug("Got empty image")
+                time.sleep(args.delay)
+                continue
+            
             frameBytes = cv2.imencode(".jpg", frame)[1].tostring()
             redis.addFrame(frameId, frameBytes)
-            debug("New frame added to Redis. Frame id:{}".format(frameId))
-
+            debug("New frame added to Redis. Frame id: {:d}".format(frameId))
             frameId = frameId + 1
-            time.sleep(1/args.fps)
-            # cv2.imshow('Video', frame)
 
-            # if(cv2.waitKey(1) & 0xFF == ord('b')):
-            #     break
-    except:
-        e = sys.exc_info()[0]
-        print(e)
+            time.sleep(args.delay)
+    except Exception as e:
+        print(str(e))
     finally:
-        capture.release()
+        stream.release()
         redis.close()
         debug("Exiting...")
+
+
+if __name__ == '__main__':
+    main()
