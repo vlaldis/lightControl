@@ -1,18 +1,19 @@
 import numpy as np
+import json
 
 from redis import Redis
 
 class RedisClient:
     formatKey = lambda self, frameKey: '{}:{}'.format(self.session, frameKey)
-    IMAGE = "image"
-    IMAGEWITHDETECTIONS = "imagewithdetections"
+    FRAME = "image"
+    DETECTIONS = "detections"
 
-    def __init__(self, serverurl, session='default', ttl=600):
-        if ':' in serverurl:
-            server, port = serverurl.split(':')
+    def __init__(self, serverUrl, session='default', ttl=600):
+        if ':' in serverUrl:
+            server, port = serverUrl.split(':')
             self.redis = Redis(host=server, port=port)
         else:
-            self.redis = Redis(host=serverurl)
+            self.redis = Redis(host=serverUrl)
         
         self.ttl = ttl
         self.session = session
@@ -20,27 +21,29 @@ class RedisClient:
         self.lastDetectionKey = '{}:lastdetectionid'.format(session)
          
     def addFrame(self, frameId, frame):
-        self.addImage(frameId, frame, self.IMAGE, self.lastFrameKey)
+        self.addData(frameId, frame, self.FRAME, self.lastFrameKey)
         
-    def addDetection(self, detectionId, detectedImage):
-        self.addImage(detectionId, detectedImage, self.IMAGEWITHDETECTIONS, self.lastDetectionKey)
+    def addDetections(self, frameId, detections):
+        jsonDetections = json.dumps(detections)
+        self.addData(frameId, jsonDetections, self.DETECTIONS, self.lastDetectionKey)
 
-    def addImage(self, frameId, frame, hKeyName, lastKeyName):
+    def addData(self, frameId, data, hKeyName, lastKeyName):
         key = self.formatKey(frameId)
-        self.redis.hset(key, hKeyName, frame)
+        self.redis.hset(key, hKeyName, data)
         self.redis.expire(key, self.ttl)
         self.redis.setex(lastKeyName, self.ttl, frameId)
 
     def getFrame(self, frameId):
-        return self.getImage(frameId, self.IMAGE)
-
-    def getDetection(self, detectionId):
-        return self.getImage(detectionId, self.IMAGEWITHDETECTIONS)
-
-    def getImage(self, id, hKeyName):
-        key = self.formatKey(id)
-        imageBytes = self.redis.hget(key, hKeyName)
+        imageBytes = self.getData(frameId, self.FRAME)
         return np.frombuffer(imageBytes, dtype=np.int8)
+
+    def getDetections(self, frameId):
+        return self.getFrame(frameId), json.loads(self.getData(frameId, self.DETECTIONS))
+
+    def getData(self, frameId, hKeyName):
+        key = self.formatKey(frameId)
+        data = self.redis.hget(key, hKeyName)
+        return data
     
     def getLastFrameId(self):
         return self.getLast(self.lastFrameKey)
@@ -51,6 +54,3 @@ class RedisClient:
     def getLast(self, lastKeyName):
         id = self.redis.get(lastKeyName)
         return int(id) if id else None
-
-    def close(self):
-        pass

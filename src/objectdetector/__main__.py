@@ -10,19 +10,15 @@ import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
  
 from object_detection.utils import label_map_util
-from object_detection.utils import visualization_utils as vis_util
  
 from src.core.redisclient import RedisClient
-from src.core.zmqclient import Zmq
 
 parser = argparse.ArgumentParser(description="Analyze frames and estimate object type using tensorflow.")
 parser.add_argument('-r', '--redis-server', metavar='server:port', type=str, default='redis:6379',
                     help="URL to redis server. Default 'redis:6379'.")
-parser.add_argument('-q', '--zmq-server', metavar='server:port', type=str, default='zmq:3000',
-                    help='URL to ZeroMQ server. Default zmq:3000.')
 parser.add_argument('-s', '--session', metavar='session-name', type=str, default='default',
                     help="Session identification. Frames will be stored in redis under 'session-name:key'."
-                    "The same will be used for ZeroMQ. Default 'default'.")
+                    "Default 'default'.")
 parser.add_argument('-d', '--debug', action='store_true', help="Write debug messages to console.")
 parser.add_argument("-m", "--frozen-model", type=str, default="/frozen_inference_graph.pb", help="Pre-trained model to load")
 parser.add_argument("-l", "--label-map", type=str, default="label_map.pbtxt", help="Path to COCO label map file") 
@@ -32,7 +28,7 @@ args = parser.parse_args()
 print("Arguments:")
 print(args)
 
-frame_delay = 5  # seconds
+frame_delay = 1  # seconds
 
 
 def debug(text):
@@ -77,11 +73,11 @@ def load_labels(path_to_labels):
     return category_index
 
 
-def next_frame(redis):
-    frameId = redis.getLastFrameId()
-    if frameId is None:
-        return None
+def nextFrameId(redis):
+    return redis.getLastFrameId()
     
+
+def next_frame(redis, frameId):
     frameBytes = redis.getFrame(frameId)
     if frameBytes is None:
         return None
@@ -89,7 +85,7 @@ def next_frame(redis):
     frame = cv2.imdecode(frameBytes, flags=1)
     debug("Got new frame. Frame id:{:d}".format(frameId))
 
-    return frameId, frame
+    return frame
 
 
 def main():
@@ -104,11 +100,17 @@ def main():
         with detection_graph.as_default():
             with tf.Session(graph=detection_graph) as sess:
                 while True:
-                    frameId, frame = next_frame(redis)
-
-                    if frame is None or frameId == previousFrameId:
+                    frameId = nextFrameId(redis)
+                    if frameId == previousFrameId:
                         debug("New frame is not available.")
                         time.sleep(frame_delay)
+                        continue
+                    
+                    previousFrameId = frameId
+                    frame = next_frame(redis, frameId)
+
+                    if frame is None:
+                        debug("Can not read frame {}. Skipping..." % frameId)
                         continue
 
                     # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
@@ -118,6 +120,7 @@ def main():
                     scores = detection_graph.get_tensor_by_name('detection_scores:0')
                     classes = detection_graph.get_tensor_by_name('detection_classes:0')
                     num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+                    
                     # Actual detection.
                     (boxes, scores, classes, num_detections) = sess.run(
                         [boxes, scores, classes, num_detections],
@@ -126,26 +129,18 @@ def main():
                     detections_count = np.squeeze(scores)
                     debug("Detected {} objects in image".format(len(detections_count[detections_count>args.threshold])))
                     
-                    # Visualization of the results of a detection.
-                    # Store detections in redis
-                    # visualize in visualizer module - TODO
-                    # currently store the frame with BBoxes
-                    vis_util.visualize_boxes_and_labels_on_image_array(
-                        frame,
-                        np.squeeze(boxes),
-                        np.squeeze(classes).astype(np.int32),
-                        np.squeeze(scores),
-                        category_index,
-                        use_normalized_coordinates=True,
-                        line_thickness=8,
-                        min_score_thresh=args.threshold)
+                    # Squeeze arrays
+                    scores = np.trim_zeros(np.squeeze(scores),'b').tolist()
+                    lastIndex = len(scores)
+                    classes = np.squeeze(classes)[0:lastIndex].astype(np.int32)
+                    categories = [category_index[idx]['name'] for idx in classes]
+                    boxes = np.squeeze(boxes)[0:lastIndex, :].tolist()
 
-                    frameBytes = cv2.imencode(".jpg", frame)[1].tostring()
-                    redis.addDetection(frameId, frameBytes)
+                    detections = {i: {"class":categories[i], "score":scores[i], "box":boxes[i]} for i in range(0, len(scores))}
+                    redis.addDetections(frameId, detections)
     except Exception as e:
         print(str(e))
     finally:
-        redis.close()
         debug("Exiting...")
 
 

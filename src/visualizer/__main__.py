@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 import cv2
 import argparse
+import numpy as np
 
 from src.core.redisclient import RedisClient
 
@@ -19,10 +20,14 @@ args = parser.parse_args()
 print("Arguments:")
 print(args)
 
+font = cv2.FONT_HERSHEY_SIMPLEX
+red = (125, 0, 0)
+
 
 def debug(text):
     if args.debug:
         print("{}: {}".format(datetime.utcnow(), text))
+
 
 def next_frame(redis):
     frameId = redis.getLastFrameId()
@@ -38,20 +43,36 @@ def next_frame(redis):
 
     return frame
 
+
+def visualize(frame, detections):
+    frame = cv2.imdecode(frame, flags=1)
+    height = frame.shape[0]
+    width = frame.shape[1]
+
+    for detection in detections:
+        data = detections[detection]
+        text = "{} {:.0f}%".format(data['class'], data['score']*100)
+        box = data['box'] * np.array([height, width, height, width])
+        box = box.astype(int)
+        frame = cv2.rectangle(frame, (box[1], box[0]), (box[3], box[2]), red, 3)
+        frame = cv2.putText(frame, text, (box[1], box[0]-5), font, 0.8, red, 2, cv2.LINE_AA) 
+   
+    return frame
+
+
 def next_detection(redis):
     detectionId = redis.getLastDetectionId()
 
     if detectionId is None:
-        return None        
+        return None
     
-    detectionBytes = redis.getDetection(detectionId)
-    if detectionBytes is None:
+    frame, detections = redis.getDetections(detectionId)
+    
+    if frame is None or detections is None:
         return None
 
-    detection = cv2.imdecode(detectionBytes, flags=1)
-    debug("Got new detection. Detection id:{}".format(detectionId))
-
-    return detection
+    debug("Got new detection. Detection id: {}".format(detectionId))
+    return visualize(frame, detections)
 
 
 def main():
@@ -60,25 +81,20 @@ def main():
 
     try:
         while True:
-            if args.raw:
-                detection = next_frame(redis)
-            else:
-                detection = next_detection(redis)
+            frame = next_frame(redis) if args.raw else next_detection(redis)
 
-            if detection is None:
+            if frame is None:
                 debug("New image is not available.")
                 time.sleep(5)
                 continue
-
-            cv2.imshow('object detection', detection)
+            
+            cv2.imshow('object detection', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 cv2.destroyAllWindows()
                 break
     except Exception as e:
         print(str(e))
     finally:
-        redis.close()
-        # zmq.close()
         debug("Exiting...")
 
 

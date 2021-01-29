@@ -96,7 +96,6 @@ def main():
         print(str(e))
     finally:
         stream.release()
-        redis.close()
         debug("Exiting...")
 
 
