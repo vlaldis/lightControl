@@ -3,7 +3,6 @@ version: "3.8"
 x-common-env: &common_env
   SESSION: "default"
   REDIS_SERVER: "redis:6379"
-  ZMQ: "zmq:3000"
 
 services:
   base:
@@ -33,7 +32,6 @@ services:
     depends_on:
       - base
       - redis
-      - zmq
     volumes:
       - ./networks:/networks
     environment:
