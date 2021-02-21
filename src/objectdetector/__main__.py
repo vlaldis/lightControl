@@ -23,12 +23,11 @@ parser.add_argument('-d', '--debug', action='store_true', help="Write debug mess
 parser.add_argument("-m", "--frozen-model", type=str, default="/frozen_inference_graph.pb", help="Pre-trained model to load")
 parser.add_argument("-l", "--label-map", type=str, default="label_map.pbtxt", help="Path to COCO label map file") 
 parser.add_argument("-t", "--threshold", type=float, default=0.5, help="minimum detection threshold to use")
+parser.add_argument("--frame-delay", type=int, default=1, help="Delay between frames in seconds. Default 1.")
 
 args = parser.parse_args()
 print("Arguments:")
 print(args)
-
-frame_delay = 1  # seconds
 
 
 def debug(text):
@@ -101,9 +100,9 @@ def main():
             with tf.Session(graph=detection_graph) as sess:
                 while True:
                     frameId = nextFrameId(redis)
-                    if frameId == previousFrameId:
+                    if frameId is None or frameId == previousFrameId:
                         debug("New frame is not available.")
-                        time.sleep(frame_delay)
+                        time.sleep(args.frame_delay)
                         continue
                     
                     previousFrameId = frameId

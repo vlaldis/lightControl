@@ -33,12 +33,10 @@ services:
       - base
       - redis
     volumes:
-      - ./networks:/networks
+      - ./networks:/data
     environment:
       <<: *common_env
-      NETWORK: "ssd-mobilenet-v2"
-      OVERLAY: "box,labels,conf"
-      THREASHOLD: 0.5
+      THREASHOLD: 0.4
   redis:
     image: redis:6.0.9-alpine
     container_name: redis
