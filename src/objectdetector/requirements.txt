@@ -1,5 +1,5 @@
-numpy
+numpy==1.19.5
+opencv-python===4.5.1
 argparse===1.4.0
 redis===3.5.3
-opencv-python
 tensorflow

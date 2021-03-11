@@ -5,15 +5,19 @@ from os import path
 import numpy as np
 import cv2
 import argparse
+ 
+import tensorflow as tf
 
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
- 
-from object_detection.utils import label_map_util
- 
+from src.core.labels import category_index
 from src.core.redisclient import RedisClient
+from src.core.videostream import VideoStream
 
 parser = argparse.ArgumentParser(description="Analyze frames and estimate object type using tensorflow.")
+parser.add_argument('-i', '--input', metavar='http://my.video.source.com/', type=str, default='0',
+                    help="Source can be id of connected web camera or stream URL. Default '0' (internal web camera id).")
+parser.add_argument('--delay', metavar='N.N', type=float, default=1.0,
+                    help="Delay between two images. No need to have all captured frames. Sample: value=2.0 will add image each 2 seconds."
+                    " Default 1.0 .")
 parser.add_argument('-r', '--redis-server', metavar='server:port', type=str, default='redis:6379',
                     help="URL to redis server. Default 'redis:6379'.")
 parser.add_argument('-s', '--session', metavar='session-name', type=str, default='default',
@@ -21,122 +25,90 @@ parser.add_argument('-s', '--session', metavar='session-name', type=str, default
                     "Default 'default'.")
 parser.add_argument('-d', '--debug', action='store_true', help="Write debug messages to console.")
 parser.add_argument("-m", "--frozen-model", type=str, default="/frozen_inference_graph.pb", help="Pre-trained model to load")
-parser.add_argument("-l", "--label-map", type=str, default="label_map.pbtxt", help="Path to COCO label map file") 
+# parser.add_argument("-l", "--label-map", type=str, default="label_map.pbtxt", help="Path to COCO label map file") 
 parser.add_argument("-t", "--threshold", type=float, default=0.5, help="minimum detection threshold to use")
-parser.add_argument("--frame-delay", type=int, default=1, help="Delay between frames in seconds. Default 1.")
+
 
 args = parser.parse_args()
 print("Arguments:")
-print(args)
+print(args, flush=True)
 
 
 def debug(text):
     if args.debug:
-        print("{}: {}".format(datetime.utcnow(), text))
+        print("{}: {}".format(datetime.utcnow(), text), flush=True)
 
 
 def file_not_found(file):
     print("Can not find file '{}'.".format(file))
 
 
-def load_model(path_to_model):
-    debug("Loading model '{}' ...".format(path_to_model))
-    if not path.exists(path_to_model):
-        file_not_found(path_to_model)
-        exit(1)
-
-    detection_graph = tf.Graph()
-    with detection_graph.as_default():
-        od_graph_def = tf.compat.v1.GraphDef()
-        with tf.compat.v2.io.gfile.GFile(path_to_model, 'rb') as fid:
-            serialized_graph = fid.read()
-            od_graph_def.ParseFromString(serialized_graph)
-            tf.import_graph_def(od_graph_def, name='')
-    debug("Model '{}' loaded successfully".format(path_to_model))
-
-    return detection_graph
-
-
-def load_labels(path_to_labels):
-    debug("Loading label map '{}' ...".format(path_to_labels))
-    if not path.exists(path_to_labels):
-        file_not_found(path_to_labels)
-        exit(1)
-
-    label_map = label_map_util.load_labelmap(path_to_labels)
-    max_num_classes = max([item.id for item in label_map.item])
-    categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=max_num_classes, use_display_name=True)
-    category_index = label_map_util.create_category_index(categories)
-    debug("Label map '{}' loaded successfully".format(path_to_labels))
-
-    return category_index
-
-
-def nextFrameId(redis):
-    return redis.getLastFrameId()
-    
-
-def next_frame(redis, frameId):
-    frameBytes = redis.getFrame(frameId)
-    if frameBytes is None:
-        return None
-
-    frame = cv2.imdecode(frameBytes, flags=1)
-    debug("Got new frame. Frame id:{:d}".format(frameId))
-
-    return frame
-
-
 def main():
-    detection_graph = load_model(args.frozen_model)
-    category_index = load_labels(args.label_map)
-    
+    input = int(args.input) if args.input.isnumeric() else args.input
+    stream = VideoStream(input)
+    debug("Successfully connected to Stream '{}'.".format(args.input))
+
+    saved_model = tf.saved_model.load('C:/projects/lightControl/deploy/networks/ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8/saved_model')
+
     redis = RedisClient(args.redis_server)
     debug("Successfully connected to Redis.")
 
-    previousFrameId = -1
+    lastid = redis.getLastFrameId()
+    frameId = int(lastid) if lastid else 0
     try:
-        with detection_graph.as_default():
-            with tf.Session(graph=detection_graph) as sess:
-                while True:
-                    frameId = nextFrameId(redis)
-                    if frameId is None or frameId == previousFrameId:
-                        debug("New frame is not available.")
-                        time.sleep(args.frame_delay)
-                        continue
-                    
-                    previousFrameId = frameId
-                    frame = next_frame(redis, frameId)
+        while True:
+            frame = stream.read()
+            if frame is None:
+                debug("Got empty image")
+                time.sleep(args.delay)
+                continue
+            
+            frameBytes = cv2.imencode(".jpg", frame)[1].tostring()
+            redis.addFrame(frameId, frameBytes)
+            debug("New frame added to Redis. Frame id: {:d}".format(frameId))
 
-                    if frame is None:
-                        debug("Can not read frame {}. Skipping..." % frameId)
-                        continue
+            # frame_expanded = np.expand_dims(frame, axis=0)
+            frame_expanded = np.array(frame)
+            
+            input_tensor = tf.convert_to_tensor(frame_expanded)
 
-                    # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
-                    frame_expanded = np.expand_dims(frame, axis=0)
-                    image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
-                    boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
-                    scores = detection_graph.get_tensor_by_name('detection_scores:0')
-                    classes = detection_graph.get_tensor_by_name('detection_classes:0')
-                    num_detections = detection_graph.get_tensor_by_name('num_detections:0')
-                    
-                    # Actual detection.
-                    (boxes, scores, classes, num_detections) = sess.run(
-                        [boxes, scores, classes, num_detections],
-                        feed_dict={image_tensor: frame_expanded})
-                    
-                    detections_count = np.squeeze(scores)
-                    debug("Detected {} objects in image".format(len(detections_count[detections_count>args.threshold])))
-                    
-                    # Squeeze arrays
-                    scores = np.trim_zeros(np.squeeze(scores),'b').tolist()
-                    lastIndex = len(scores)
-                    classes = np.squeeze(classes)[0:lastIndex].astype(np.int32)
-                    categories = [category_index[idx]['name'] for idx in classes]
-                    boxes = np.squeeze(boxes)[0:lastIndex, :].tolist()
+            # The model expects a batch of images, so add an axis with `tf.newaxis`.
+            input_tensor = input_tensor[tf.newaxis, ...]
 
-                    detections = {i: {"class":categories[i], "score":scores[i], "box":boxes[i]} for i in range(0, len(scores))}
-                    redis.addDetections(frameId, detections)
+            # input_tensor = np.expand_dims(image_np, 0)
+            detections = saved_model(input_tensor)
+            print(1)
+
+            # All outputs are batches tensors.
+            # Convert to numpy arrays, and take index [0] to remove the batch dimension.
+            # We're only interested in the first num_detections.
+            num_detections = int(detections.pop('num_detections'))
+            detections = {key: value[0, :num_detections].numpy()
+                        for key, value in detections.items()}
+            detections['num_detections'] = num_detections
+
+            # detection_classes should be ints.
+            detections['detection_classes'] = detections['detection_classes'].astype(np.int64)
+            
+            boxes = detections["detection_boxes"]
+            scores = detections["detection_scores"]
+            classes = detections["detection_classes"]
+            
+            detections_count = np.squeeze(scores)
+            debug("Detected {} objects in image".format(len(detections_count[detections_count>args.threshold])))
+            
+            # Squeeze arrays
+            scores = np.trim_zeros(np.squeeze(scores),'b').tolist()
+            lastIndex = len(scores)
+            classes = np.squeeze(classes)[0:lastIndex]
+            categories = [category_index[idx]['name'] for idx in classes]
+            boxes = np.squeeze(boxes)[0:lastIndex, :].tolist()
+
+            detections = {i: {"class":categories[i], "score":scores[i], "box":boxes[i]} for i in range(0, len(scores)) if scores[i]>args.threshold}
+            redis.addDetections(frameId, detections)
+
+            frameId = frameId + 1
+            time.sleep(args.delay)
     except Exception as e:
         print(str(e))
     finally:
