@@ -24,7 +24,7 @@ parser.add_argument('-s', '--session', metavar='session-name', type=str, default
                     help="Session identification. Frames will be stored in redis under 'session-name:key'."
                     "Default 'default'.")
 parser.add_argument('-d', '--debug', action='store_true', help="Write debug messages to console.")
-parser.add_argument("-m", "--frozen-model", type=str, default="/frozen_inference_graph.pb", help="Pre-trained model to load")
+parser.add_argument("-m", "--saved-model", type=str, default="/data/saved_model", help="Pre-trained model to load.")
 # parser.add_argument("-l", "--label-map", type=str, default="label_map.pbtxt", help="Path to COCO label map file") 
 parser.add_argument("-t", "--threshold", type=float, default=0.5, help="minimum detection threshold to use")
 
@@ -43,12 +43,30 @@ def file_not_found(file):
     print("Can not find file '{}'.".format(file))
 
 
+def toDetectionDict(rawDetections):
+    num_detections = int(rawDetections.pop('num_detections'))
+    detections = {key: value[0, :num_detections].numpy()
+                for key, value in rawDetections.items()}
+    
+    detections['detection_classes'] = detections['detection_classes'].astype(np.int64)
+    scores = np.squeeze(detections["detection_scores"])
+    boxes = np.squeeze(detections["detection_boxes"])[scores>args.threshold].tolist()
+    classes = np.squeeze(detections["detection_classes"])[scores>args.threshold]
+    scores = scores[scores>args.threshold].tolist()
+    categories = [category_index[idx]['name'] for idx in classes]
+    
+    debug("Detected {} objects in image".format(len(scores)))
+
+    detectionsDict = {i: {"class":categories[i], "score":scores[i], "box":boxes[i]} for i in range(0, len(scores))}
+    return detectionsDict
+
+
 def main():
     input = int(args.input) if args.input.isnumeric() else args.input
     stream = VideoStream(input)
     debug("Successfully connected to Stream '{}'.".format(args.input))
 
-    saved_model = tf.saved_model.load('C:/projects/lightControl/deploy/networks/ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8/saved_model')
+    saved_model = tf.saved_model.load(args.saved_model)
 
     redis = RedisClient(args.redis_server)
     debug("Successfully connected to Redis.")
@@ -67,47 +85,16 @@ def main():
             redis.addFrame(frameId, frameBytes)
             debug("New frame added to Redis. Frame id: {:d}".format(frameId))
 
-            # frame_expanded = np.expand_dims(frame, axis=0)
-            frame_expanded = np.array(frame)
-            
+            frame_expanded = np.array(frame)            
             input_tensor = tf.convert_to_tensor(frame_expanded)
-
-            # The model expects a batch of images, so add an axis with `tf.newaxis`.
             input_tensor = input_tensor[tf.newaxis, ...]
 
-            # input_tensor = np.expand_dims(image_np, 0)
             detections = saved_model(input_tensor)
-            print(1)
-
-            # All outputs are batches tensors.
-            # Convert to numpy arrays, and take index [0] to remove the batch dimension.
-            # We're only interested in the first num_detections.
-            num_detections = int(detections.pop('num_detections'))
-            detections = {key: value[0, :num_detections].numpy()
-                        for key, value in detections.items()}
-            detections['num_detections'] = num_detections
-
-            # detection_classes should be ints.
-            detections['detection_classes'] = detections['detection_classes'].astype(np.int64)
+            detectionsDict = toDetectionDict(detections)
             
-            boxes = detections["detection_boxes"]
-            scores = detections["detection_scores"]
-            classes = detections["detection_classes"]
-            
-            detections_count = np.squeeze(scores)
-            debug("Detected {} objects in image".format(len(detections_count[detections_count>args.threshold])))
-            
-            # Squeeze arrays
-            scores = np.trim_zeros(np.squeeze(scores),'b').tolist()
-            lastIndex = len(scores)
-            classes = np.squeeze(classes)[0:lastIndex]
-            categories = [category_index[idx]['name'] for idx in classes]
-            boxes = np.squeeze(boxes)[0:lastIndex, :].tolist()
-
-            detections = {i: {"class":categories[i], "score":scores[i], "box":boxes[i]} for i in range(0, len(scores)) if scores[i]>args.threshold}
-            redis.addDetections(frameId, detections)
-
+            redis.addDetections(frameId, detectionsDict)
             frameId = frameId + 1
+
             time.sleep(args.delay)
     except Exception as e:
         print(str(e))
