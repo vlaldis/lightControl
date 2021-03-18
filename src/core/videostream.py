@@ -22,13 +22,13 @@ class VideoStream:
 
         self.capture = cv2.VideoCapture(self.stream)
         if not self.capture.isOpened():
-            print("Can not open camera")
+            print("Can not open stream")
             time.sleep(1)
 
     def readStream(self):
         while True:
             if self.capture is None or not self.capture.isOpened():
-                print("Stream is closed. Conecting ...")
+                print("Stream is closed. Connecting ...")
                 self.connect()
             else:
                 (self.status, self.frame) = self.capture.read()

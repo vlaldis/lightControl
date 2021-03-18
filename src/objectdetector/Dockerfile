@@ -1,4 +1,5 @@
-FROM nvcr.io/nvidia/l4t-tensorflow:r32.5.0-tf2.3-py3
+# FROM nvcr.io/nvidia/l4t-tensorflow:r32.5.0-tf2.3-py3
+FROM pythoncv
 
 ENV SOURCE=0
 ENV DELAY=1.0
@@ -8,7 +9,19 @@ ENV FROZEN_MODEL="/data/frozen_inference_graph.pb"
 ENV THREASHOLD=0.5
 ENV PYTHONPATH="/data:/usr/lib/python3.6/dist-packages/"
 
-RUN pip3 install --upgrade pip
+RUN apt update -y && \
+    apt install -y --no-install-recommends \
+    python3-pip
+	libv4l-dev \
+	libv4l-0 \
+	v4l-utils \
+    libavcodec-dev \
+	libavformat-dev \
+	libswscale-dev \
+	libxvidcore-dev \
+	libx264-dev
+
+# RUN pip3 install --upgrade pip
 
 RUN mkdir -p /data/src && \
     touch /data/src/__init__.py

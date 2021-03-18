@@ -1,5 +1,5 @@
 tensorflow>=2.1
-opencv-python
+opencv-contrib-python
 numpy
 argparse
 redis
