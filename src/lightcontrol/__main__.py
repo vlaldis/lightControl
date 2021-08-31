@@ -6,6 +6,7 @@ import argparse
 # import Jetson.GPIO as GPIO
 
 from src.core.redisclient import RedisClient
+from nightTime import NightTime
 
 parser = argparse.ArgumentParser(description="Turn on lights if person/car/bicycle is detected.")
 parser.add_argument('-r', '--redis-server', metavar='server:port', type=str, default='redis:6379',
@@ -87,10 +88,20 @@ class Timer:
 def main():
     timer = Timer(args.period, args.control_pin)
     redis = RedisClient(args.redis_server)
+    nightTime = NightTime()
+    hour = 3600 # seconds
+
     debug("Successfully connected to Redis.")
 
     try:
         while True:
+            if not nightTime.isNight():
+                secondsTillNight = nightTime.SecondsTillNight()
+                delay = secondsTillNight if secondsTillNight < hour  else hour
+                debug("Hey, it's a day! I'll take a nap for {0} seconds ...".format(delay))
+                time.sleep(delay)
+                continue
+
             detections = next_detection(redis)
 
             if detections is None or len(detections) == 0:
