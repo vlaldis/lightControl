@@ -3,4 +3,3 @@ opencv-contrib-python
 numpy
 argparse
 redis
-suntime
