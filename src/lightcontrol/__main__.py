@@ -6,7 +6,7 @@ import argparse
 # import Jetson.GPIO as GPIO
 
 from src.core.redisclient import RedisClient
-from nightTime import NightTime
+from src.core.nightTime import NightTime
 
 parser = argparse.ArgumentParser(description="Turn on lights if person/car/bicycle is detected.")
 parser.add_argument('-r', '--redis-server', metavar='server:port', type=str, default='redis:6379',
