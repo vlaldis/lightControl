@@ -11,6 +11,7 @@ import tensorflow as tf
 from src.core.labels import category_index
 from src.core.redisclient import RedisClient
 from src.core.videostream import VideoStream
+from src.core.nightTime import NightTime
 
 parser = argparse.ArgumentParser(description="Analyze frames and estimate object type using tensorflow.")
 parser.add_argument('-i', '--input', metavar='http://my.video.source.com/', type=str, default='0',
@@ -66,22 +67,27 @@ def connectStream(args):
     stream = VideoStream(input)
     return stream
 
+
 def connectRedis(args):
     redis = RedisClient(args.redis_server)
     debug("Successfully connected to Redis.")
     return redis
 
+
 def getLastFrameId(redis):
     lastid = redis.getLastFrameId()
     return int(lastid) if lastid else 0
 
+
 def loadModel(args):
     return tf.saved_model.load(args.saved_model)
+
 
 def storeFrameInRedis(redis, frame, frameId):
     frameBytes = cv2.imencode(".jpg", frame)[1].tostring()
     redis.addFrame(frameId, frameBytes)
     debug("New frame added to Redis. Frame id: {:d}".format(frameId))
+
 
 def extractDetections(saved_model, frame):
     frame_expanded = np.array(frame)                
@@ -90,15 +96,28 @@ def extractDetections(saved_model, frame):
     detections = saved_model(input_tensor)
     return toDetectionDict(detections)
 
+
+def assertIsNight(nightTime):
+    if nightTime.IsNight():
+        return
+
+    hour = 3600
+    secondsToNightTime = nightTime.secondsTillNight()
+    delay = min(secondsToNightTime, hour)
+    debug("It's a day! Taking nap for {} seconds.".format(delay))
+    time.sleep(delay)
+
+
 def main():
-    
+    nightTime = NightTime()
     stream = connectStream(args)
-    saved_model = loadModel(args)
+    savedModel = loadModel(args)
     redis = connectRedis(args)
     frameId = getLastFrameId(redis)
     
     try:
         while True:
+            assertIsNight(nightTime)
             frame = stream.read()
             if frame is None:
                 debug("Got empty image")
@@ -106,7 +125,7 @@ def main():
                 continue
             
             storeFrameInRedis(redis, frame, frameId)
-            detections = extractDetections(saved_model, frame)
+            detections = extractDetections(savedModel, frame)
             redis.addDetections(frameId, detections)
 
             frameId = frameId + 1
@@ -115,6 +134,7 @@ def main():
         print(str(e))
     finally:
         debug("Exiting...")
+        stream.release()
 
 
 if __name__ == '__main__':
