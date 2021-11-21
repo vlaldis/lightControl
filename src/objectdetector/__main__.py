@@ -61,18 +61,42 @@ def toDetectionDict(rawDetections):
     return detectionsDict
 
 
-def main():
+def connectStream(args):
     input = int(args.input) if args.input.isnumeric() else args.input
     stream = VideoStream(input)
-    debug("Successfully connected to Stream '{}'.".format(args.input))
+    return stream
 
-    saved_model = tf.saved_model.load(args.saved_model)
-
+def connectRedis(args):
     redis = RedisClient(args.redis_server)
     debug("Successfully connected to Redis.")
+    return redis
 
+def getLastFrameId(redis):
     lastid = redis.getLastFrameId()
-    frameId = int(lastid) if lastid else 0
+    return int(lastid) if lastid else 0
+
+def loadModel(args):
+    return tf.saved_model.load(args.saved_model)
+
+def storeFrameInRedis(redis, frame, frameId):
+    frameBytes = cv2.imencode(".jpg", frame)[1].tostring()
+    redis.addFrame(frameId, frameBytes)
+    debug("New frame added to Redis. Frame id: {:d}".format(frameId))
+
+def extractDetections(saved_model, frame):
+    frame_expanded = np.array(frame)                
+    input_tensor = tf.convert_to_tensor(frame_expanded)
+    input_tensor = input_tensor[tf.newaxis, ...]
+    detections = saved_model(input_tensor)
+    return toDetectionDict(detections)
+
+def main():
+    
+    stream = connectStream(args)
+    saved_model = loadModel(args)
+    redis = connectRedis(args)
+    frameId = getLastFrameId(redis)
+    
     try:
         while True:
             frame = stream.read()
@@ -81,20 +105,11 @@ def main():
                 time.sleep(args.delay)
                 continue
             
-            frameBytes = cv2.imencode(".jpg", frame)[1].tostring()
-            redis.addFrame(frameId, frameBytes)
-            debug("New frame added to Redis. Frame id: {:d}".format(frameId))
+            storeFrameInRedis(redis, frame, frameId)
+            detections = extractDetections(saved_model, frame)
+            redis.addDetections(frameId, detections)
 
-            frame_expanded = np.array(frame)            
-            input_tensor = tf.convert_to_tensor(frame_expanded)
-            input_tensor = input_tensor[tf.newaxis, ...]
-
-            detections = saved_model(input_tensor)
-            detectionsDict = toDetectionDict(detections)
-            
-            redis.addDetections(frameId, detectionsDict)
             frameId = frameId + 1
-
             time.sleep(args.delay)
     except Exception as e:
         print(str(e))

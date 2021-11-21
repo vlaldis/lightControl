@@ -24,6 +24,8 @@ class VideoStream:
         if not self.capture.isOpened():
             print("Can not open stream")
             time.sleep(1)
+        else:
+            print("Successfully connected to Stream '{}'.".format(self.stream))
 
     def readStream(self):
         while True:
