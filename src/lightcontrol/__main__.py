@@ -3,10 +3,11 @@ from datetime import datetime
 from threading import Thread
 
 import argparse
-# import Jetson.GPIO as GPIO
 
 from src.core.redisclient import RedisClient
-from src.core.nightTime import NightTime
+from src.core.nighttime import NightTime
+
+NA_GPIO = -1
 
 parser = argparse.ArgumentParser(description="Turn on lights if person/car/bicycle is detected.")
 parser.add_argument('-r', '--redis-server', metavar='server:port', type=str, default='redis:6379',
@@ -16,28 +17,28 @@ parser.add_argument('-s', '--session', metavar='session-name', type=str, default
                     "Default 'default'.")
 parser.add_argument('-d', '--debug', action='store_true', help="Write debug messages to console.")
 parser.add_argument('-p', '--period', type=int, default=5, help="For how long should be the lights on.")
-parser.add_argument('-c', '--control-pin', metavar='N', type=int, default=-1,
+parser.add_argument('-c', '--control-pin', metavar='N', type=int, default=NA_GPIO,
                     help='Pin for light control. Value specifies output GPIO. \
-                        If set to High, lights are on. Default -1 (do not use).')
+                        If set to High, lights are on. Default {0} (do not use).'.format(NA_GPIO))
 
 args = parser.parse_args()
 print("Arguments:")
 print(args)
 
-# GPIO.setmode(GPIO.BOARD)
-# pin = args.control_pin
-# if pin >= 0:
-#     GPIO.setup(pin, GPIO.OUT)
+if args.control_pin > NA_GPIO:
+    import Jetson.GPIO as GPIO
+
+    GPIO.setmode(GPIO.BOARD)
+    pin = args.control_pin
+    GPIO.setup(pin, GPIO.OUT)
 
 # objects of interes
 OOI = ['person', 'car', 'bicycle']
 hasRelevantObject = lambda detections: detections is not None and 0 < len([v for _, v in detections.items() if v['class'] in OOI])
 
-
 def debug(text):
     if args.debug:
         print("{}: {}".format(datetime.utcnow(), text))
-
 
 def next_detection(redis):
     detectionId = redis.getLastDetectionId()
@@ -56,16 +57,16 @@ class Timer:
         self.gpio = gpio
         self.running = False
         self.thread = None
-        # if pin >= 0:
-        #    GPIO.setup(pin, GPIO.OUT)
+        if self.gpio > NA_GPIO:
+           GPIO.setup(self.gpio, GPIO.OUT)
 
     def run(self):
         debug("Lights on!")
-        #GPIO.output(pin, GPIO.HIGH)
+        setOutput(GPIO.HIGH)
         while self.running and self.currentPeriod:
             time.sleep(1)
             self.currentPeriod -= 1
-        #GPIO.output(pin, GPIO.LOW)
+        setOutput(GPIO.LOW)
         debug("Lights off!")
 
     def start(self):
@@ -84,6 +85,9 @@ class Timer:
             self.thread.join()            
         pass
 
+    def setOutput(self, value):
+        if self.gpio > NA_GPIO:
+            GPIO.output(pin, value)
 
 def main():
     timer = Timer(args.period, args.control_pin)
@@ -105,6 +109,7 @@ def main():
             detections = next_detection(redis)
 
             if detections is None or len(detections) == 0:
+                debug("New detection not available")
                 time.sleep(10)
                 continue
             
