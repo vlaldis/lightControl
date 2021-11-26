@@ -11,7 +11,7 @@ import tensorflow as tf
 from src.core.labels import category_index
 from src.core.redisclient import RedisClient
 from src.core.videostream import VideoStream
-from src.core.nightTime import NightTime
+from src.core.nighttime import NightTime
 
 parser = argparse.ArgumentParser(description="Analyze frames and estimate object type using tensorflow.")
 parser.add_argument('-i', '--input', metavar='http://my.video.source.com/', type=str, default='0',
