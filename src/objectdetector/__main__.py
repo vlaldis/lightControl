@@ -13,6 +13,8 @@ from src.core.redisclient import RedisClient
 from src.core.videostream import VideoStream
 from src.core.nighttime import NightTime
 
+hour = 3600  # seconds
+
 parser = argparse.ArgumentParser(description="Analyze frames and estimate object type using tensorflow.")
 parser.add_argument('-i', '--input', metavar='http://my.video.source.com/', type=str, default='0',
                     help="Source can be id of connected web camera or stream URL. Default '0' (internal web camera id).")
@@ -97,11 +99,7 @@ def extractDetections(saved_model, frame):
     return toDetectionDict(detections)
 
 
-def assertIsNight(nightTime):
-    if nightTime.IsNight():
-        return
-
-    hour = 3600
+def wait_routine(nightTime):
     secondsToNightTime = nightTime.secondsTillNight()
     delay = min(secondsToNightTime, hour)
     debug("It's a day! Taking nap for {} seconds.".format(delay))
@@ -117,7 +115,10 @@ def main():
     
     try:
         while True:
-            assertIsNight(nightTime)
+            if not nightTime.isNight():
+                wait_routine(nightTime)
+                continue
+
             frame = stream.read()
             if frame is None:
                 debug("Got empty image")
