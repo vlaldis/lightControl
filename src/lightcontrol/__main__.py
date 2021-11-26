@@ -8,6 +8,7 @@ from src.core.redisclient import RedisClient
 from src.core.nighttime import NightTime
 
 NA_GPIO = -1
+hour = 3600 # seconds
 
 parser = argparse.ArgumentParser(description="Turn on lights if person/car/bicycle is detected.")
 parser.add_argument('-r', '--redis-server', metavar='server:port', type=str, default='redis:6379',
@@ -50,6 +51,12 @@ def next_detection(redis):
     
     return detections
 
+def wait_routine(nightTime):
+    secondsTillNight = nightTime.SecondsTillNight()
+    delay = secondsTillNight if secondsTillNight < hour  else hour
+    debug("Hey, it's a day! I'll take a nap for {0} seconds ...".format(delay))
+    time.sleep(delay)
+
 class Timer:
     def __init__(self, defaultPeriodInSeconds, gpio):
         self.defaultPeriod = defaultPeriodInSeconds
@@ -62,11 +69,11 @@ class Timer:
 
     def run(self):
         debug("Lights on!")
-        setOutput(GPIO.HIGH)
+        self.set_output(GPIO.HIGH)
         while self.running and self.currentPeriod:
             time.sleep(1)
             self.currentPeriod -= 1
-        setOutput(GPIO.LOW)
+        self.set_output(GPIO.LOW)
         debug("Lights off!")
 
     def start(self):
@@ -85,7 +92,7 @@ class Timer:
             self.thread.join()            
         pass
 
-    def setOutput(self, value):
+    def set_output(self, value):
         if self.gpio > NA_GPIO:
             GPIO.output(pin, value)
 
@@ -93,17 +100,12 @@ def main():
     timer = Timer(args.period, args.control_pin)
     redis = RedisClient(args.redis_server)
     nightTime = NightTime()
-    hour = 3600 # seconds
-
     debug("Successfully connected to Redis.")
 
     try:
         while True:
             if not nightTime.isNight():
-                secondsTillNight = nightTime.SecondsTillNight()
-                delay = secondsTillNight if secondsTillNight < hour  else hour
-                debug("Hey, it's a day! I'll take a nap for {0} seconds ...".format(delay))
-                time.sleep(delay)
+                wait_routine(nightTime)
                 continue
 
             detections = next_detection(redis)
