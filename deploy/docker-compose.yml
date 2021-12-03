@@ -5,33 +5,33 @@ x-common-env: &common_env
   REDIS_SERVER: "redis:6379"
 
 services:
-  # base:
-  #   image: pythoncv
-  #   build:
-  #     context: .
-  #     dockerfile: ./Dockerfile-base
-  # objectdetector:
-  #   image: objectdetector:latest
-  #   container_name: objectdetector
-  #   build:
-  #     context: ../src
-  #     dockerfile: ./objectdetector/Dockerfile
-  #   depends_on:
-  #     # - base
-  #     - redis
-  #   volumes:
-  #     - ./networks:/networks
-  #     - ./networks/ssd_mobilenet_v2_coco_2018_03_29/saved_model:/data/saved_model
-  #     - ./video.mp4:/video.mp4
-  #   environment:
-  #     <<: *common_env
-  #     # SOURCE: "rtsp://admin:admin@192.168.1.168:80"
-  #     SOURCE: "/video.mp4"
-  #     #SOURCE: 0
-  #     FROZEN_MODEL: "/data/saved_model"
-  #     THREASHOLD: 0.4
-  #     DELAY: 1.0
-  #   restart: always
+  objectdetector:
+    image: objectdetector:latest
+    container_name: objectdetector
+    build:
+      context: ../src
+      dockerfile: ./objectdetector/Dockerfile
+    depends_on:
+      - redis
+    volumes:
+      - ./networks:/networks
+      - ./networks/ssd_mobilenet_v2_320x320_coco17_tpu-8/saved_model:/data/saved_model
+      # - ./video.mp4:/video.mp4
+    environment:
+      <<: *common_env
+      SOURCE: "rtsp://admin:admin@192.168.1.168:80"
+      # SOURCE: "/video.mp4"
+      #SOURCE: 0
+      FROZEN_MODEL: "/data/saved_model"
+      THREASHOLD: 0.4
+      DELAY: 2.5
+      NVIDIA_VISIBLE_DEVICES: "all"
+    runtime: nvidia
+    logging:
+      options:
+        max-size: "1m"
+        max-file: "1"
+    restart: always
   redis:
     image: redis:6.0.9-alpine
     container_name: redis

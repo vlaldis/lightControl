@@ -52,7 +52,7 @@ def next_detection(redis):
     return detections
 
 def wait_routine(nightTime):
-    secondsTillNight = nightTime.SecondsTillNight()
+    secondsTillNight = nightTime.secondsTillNight()
     delay = secondsTillNight if secondsTillNight < hour  else hour
     debug("Hey, it's a day! I'll take a nap for {0} seconds ...".format(delay))
     time.sleep(delay)

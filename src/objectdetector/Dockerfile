@@ -8,8 +8,8 @@ ENV FROZEN_MODEL="/data/frozen_inference_graph.pb"
 ENV THREASHOLD=0.5
 ENV PYTHONPATH="/data:/usr/lib/python3.6/dist-packages/"
 
-RUN apt update -y && \
-    apt install -y --no-install-recommends \
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
     python3-pip \
     libv4l-dev \
     libv4l-0 \
@@ -18,9 +18,14 @@ RUN apt update -y && \
     libavformat-dev \
     libswscale-dev \
     libxvidcore-dev \
-    libx264-dev
+    libx264-dev \
+    libx265-dev \
+    nano \
+    phonon-backend-gstreamer \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev
 
-RUN pip3 install --upgrade pip
+RUN python3 -m pip install --upgrade pip
 
 RUN mkdir -p /data/src && \
     touch /data/src/__init__.py
@@ -28,6 +33,6 @@ RUN mkdir -p /data/src && \
 ADD ./objectdetector /data/src/objectdetector
 ADD ./core /data/src/core
 
-RUN pip3 install -r /data/src/objectdetector/requirements.txt
+RUN python3 -m pip install -r /data/src/objectdetector/requirements.txt
 
-ENTRYPOINT python3 /data/src/objectdetector/__main__.py -i ${SOURCE} -m ${FROZEN_MODEL} -t ${THREASHOLD} -r ${REDIS_SERVER} -s ${SESSION} -d --delay ${DELAY}
+ENTRYPOINT python3 /data/src/objectdetector/__main__.py -i ${SOURCE} -m ${FROZEN_MODEL} -t ${THREASHOLD} -r ${REDIS_SERVER} -s ${SESSION} -d --delay ${DELAY} 

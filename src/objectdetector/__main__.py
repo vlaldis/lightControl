@@ -29,7 +29,8 @@ parser.add_argument('-s', '--session', metavar='session-name', type=str, default
 parser.add_argument('-d', '--debug', action='store_true', help="Write debug messages to console.")
 parser.add_argument("-m", "--saved-model", type=str, default="/data/saved_model", help="Pre-trained model to load.")
 # parser.add_argument("-l", "--label-map", type=str, default="label_map.pbtxt", help="Path to COCO label map file") 
-parser.add_argument("-t", "--threshold", type=float, default=0.5, help="minimum detection threshold to use")
+parser.add_argument("-t", "--threshold", type=float, default=0.5, help="Minimum detection threshold to use")
+parser.add_argument("-f", "--run-at-day", action='store_true', help="Run during day, not only at night")
 
 
 args = parser.parse_args()
@@ -58,7 +59,7 @@ def toDetectionDict(rawDetections):
     scores = scores[scores>args.threshold].tolist()
     categories = [category_index[idx]['name'] for idx in classes]
     
-    debug("Detected {} objects in image".format(len(scores)))
+    debug("Detected {} objects in image: {}".format(len(scores), categories))
 
     detectionsDict = {i: {"class":categories[i], "score":scores[i], "box":boxes[i]} for i in range(0, len(scores))}
     return detectionsDict
@@ -99,11 +100,16 @@ def extractDetections(saved_model, frame):
     return toDetectionDict(detections)
 
 
-def wait_routine(nightTime):
+def wait_routine(nightTime, stream):
+    if args.run_at_day:
+        return
+        
+    stream.release()
     secondsToNightTime = nightTime.secondsTillNight()
     delay = min(secondsToNightTime, hour)
     debug("It's a day! Taking nap for {} seconds.".format(delay))
     time.sleep(delay)
+    stream = connectStream(args)
 
 
 def main():
@@ -115,8 +121,8 @@ def main():
     
     try:
         while True:
-            if not nightTime.isNight():
-                wait_routine(nightTime)
+            if not args.run_at_day and not nightTime.isNight():
+                wait_routine(nightTime, stream)
                 continue
 
             frame = stream.read()

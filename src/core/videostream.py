@@ -28,16 +28,18 @@ class VideoStream:
             print("Successfully connected to Stream '{}'.".format(self.stream))
 
     def readStream(self):
-        while True:
-            if self.canceled:
-                break
+        try:
+            while True:
+                if self.canceled:
+                    break
 
-            if self.capture is None or not self.capture.isOpened():
-                print("Stream is closed. Connecting ...")
-                self.connect()
-            else:
-                (self.status, self.frame) = self.capture.read()
-                time.sleep(1/30)
+                if self.capture is None or not self.capture.isOpened():
+                    print("Stream is closed. Connecting ...")
+                    self.connect()
+                else:
+                    (self.status, self.frame) = self.capture.read()
+        except Exception as ex:
+            print("Error in video stream thread: {}".format(str(ex)))
 
     def read(self):
         return self.frame
