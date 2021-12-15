@@ -1,6 +1,6 @@
 #tensorflow>=2.3
 opencv-contrib-python
-numpy==1.19.0
+numpy==1.19.2
 argparse
 redis
 suntime
