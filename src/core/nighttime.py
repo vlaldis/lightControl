@@ -18,7 +18,7 @@ class NightTime:
 
     def isNight(self):
         currentTime = self.now()
-        return  self.getSunrise() > currentTime or currentTime > self.getSunset()
+        return currentTime > self.getSunset() # or self.getSunrise() > currentTime   # disabled to work only till midnight
 
     def secondsTillNight(self):
         return self.getSunset() - self.now()

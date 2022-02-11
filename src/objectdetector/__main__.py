@@ -28,7 +28,6 @@ parser.add_argument('-s', '--session', metavar='session-name', type=str, default
                     "Default 'default'.")
 parser.add_argument('-d', '--debug', action='store_true', help="Write debug messages to console.")
 parser.add_argument("-m", "--saved-model", type=str, default="/data/saved_model", help="Pre-trained model to load.")
-# parser.add_argument("-l", "--label-map", type=str, default="label_map.pbtxt", help="Path to COCO label map file") 
 parser.add_argument("-t", "--threshold", type=float, default=0.5, help="Minimum detection threshold to use")
 parser.add_argument("-f", "--run-at-day", action='store_true', help="Run during day, not only at night")
 
